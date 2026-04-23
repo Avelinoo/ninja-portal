@@ -3,40 +3,43 @@ import pool from '@/lib/db'
 
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl
-  const accountId = searchParams.get('account_id')
-  const date = searchParams.get('date') // YYYY-MM-DD, default yesterday
+  const accountId = searchParams.get('accountId') ?? searchParams.get('account_id')
+  const from      = searchParams.get('from')
+  const to        = searchParams.get('to')
+  const maximum   = searchParams.get('maximum') === 'true'
 
-  const targetDate = date ?? `(CURRENT_DATE - INTERVAL '1 day')::date`
   const conditions: string[] = []
   const values: unknown[] = []
+  let i = 1
 
-  if (date) {
-    conditions.push(`date = $${values.length + 1}`)
-    values.push(date)
-  } else {
-    conditions.push(`date = (CURRENT_DATE - INTERVAL '1 day')::date`)
-  }
+  if (accountId) { conditions.push(`account_id = $${i++}`); values.push(accountId) }
+  if (to)        { conditions.push(`snapshot_date <= $${i++}`); values.push(to) }
+  if (from && !maximum) { conditions.push(`snapshot_date >= $${i++}`); values.push(from) }
 
-  if (accountId) {
-    conditions.push(`account_id = $${values.length + 1}`)
-    values.push(accountId)
-  }
+  const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : ''
 
   const { rows } = await pool.query(
     `SELECT
-       account_id, campaign_id, campaign_name, status, date,
+       account_id, campaign_id, campaign_name, objective, status,
+       daily_budget::float        AS daily_budget,
+       lifetime_budget::float     AS lifetime_budget,
+       budget_remaining::float    AS budget_remaining,
        COALESCE(spend::float, 0)            AS spend,
        COALESCE(impressions::int, 0)        AS impressions,
        COALESCE(clicks::int, 0)             AS clicks,
+       COALESCE(reach::int, 0)              AS reach,
        COALESCE(ctr::float, 0)              AS ctr,
        COALESCE(cpc::float, 0)              AS cpc,
        COALESCE(cpm::float, 0)              AS cpm,
        COALESCE(result_count::int, 0)       AS result_count,
        COALESCE(cost_per_result::float, 0)  AS cost_per_result,
-       COALESCE(conversions::int, 0)        AS conversions
+       COALESCE(conversions::int, 0)        AS conversions,
+       COALESCE(result_type, '')             AS result_type,
+       COALESCE(result_label, 'Resultados') AS result_label,
+       snapshot_date
      FROM campaign_snapshots
-     WHERE ${conditions.join(' AND ')}
-     ORDER BY spend DESC`,
+     ${where}
+     ORDER BY snapshot_date DESC, spend DESC`,
     values
   )
   return NextResponse.json(rows)

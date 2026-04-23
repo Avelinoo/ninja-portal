@@ -1,0 +1,23 @@
+version: '3.9'
+services:
+  ninja-portal:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "3002:3000"
+    environment:
+      - DATABASE_URL=postgresql://ninjacompany:BGTBq5A5YgX2Lcfo3XkHOZlnOzDJpjNk5s2yVoVFSXqsfQUnWKlK483pJNbc5SrG@10.0.1.7:5432/postgres
+      - SESSION_SECRET=6feafa5faa7d04bf8a4f353bba9d8daa54cfbd540d43540bad81660f8faf547d
+      - ADMIN_PASSWORD=Avelino@123
+      - BDR_API_URL=http://10.0.1.11:8001
+      - BDR_API_TOKEN=bdr2026avelon
+      - DISPAROS_API_URL=https://disparos.ninjacompany.com.br
+      - RELATORIOS_API_URL=https://relatorios.ninjacompany.com.br
+      - NODE_ENV=production
+    networks:
+      - hetzner-private
+
+networks:
+  hetzner-private:
+    external: true
+    name: coolify

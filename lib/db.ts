@@ -33,6 +33,16 @@ export async function ensureSchema(): Promise<void> {
     )
   `)
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS portal.audit_log (
+      id        SERIAL PRIMARY KEY,
+      actor_id  INTEGER REFERENCES portal.users(id),
+      action    VARCHAR(50) NOT NULL,
+      target    VARCHAR(100),
+      created_at TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+
   // Seed default admin — runs only if row doesn't exist yet
   const adminPass = process.env.ADMIN_PASSWORD ?? 'Avelino@123'
   const { rowCount } = await pool.query(

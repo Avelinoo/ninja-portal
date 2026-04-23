@@ -9,7 +9,12 @@ declare global {
 
 function getPool(): Pool {
   if (!global._ninjaPool) {
-    global._ninjaPool = new Pool({ connectionString: process.env.DATABASE_URL })
+    if (!process.env.DATABASE_URL) throw new Error('DATABASE_URL não definida')
+    global._ninjaPool = new Pool({
+      connectionString: process.env.DATABASE_URL,
+      // Evita que pg logue a connection string (com senha) em erros
+      log: undefined,
+    })
   }
   return global._ninjaPool
 }

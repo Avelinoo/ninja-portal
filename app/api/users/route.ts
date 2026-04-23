@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import pool, { ensureSchema } from '@/lib/db'
 import { decodeSession, SESSION_COOKIE } from '@/lib/session'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { logger } from '@/lib/logger'
 
 function getSession(req: NextRequest) {
   const token = req.cookies.get(SESSION_COOKIE)?.value
@@ -21,8 +22,9 @@ async function writeAudit(actorId: number, action: string, target: string) {
       `INSERT INTO portal.audit_log (actor_id, action, target, created_at) VALUES ($1, $2, $3, NOW())`,
       [actorId, action, target]
     )
-  } catch {
-    // audit failures nunca bloqueam a operação principal
+    logger.info('audit', { actorId, action, target })
+  } catch (err) {
+    logger.error('audit.write_failed', { action, target, err: String(err) })
   }
 }
 

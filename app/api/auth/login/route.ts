@@ -3,11 +3,13 @@ import bcrypt from 'bcryptjs'
 import pool, { ensureSchema } from '@/lib/db'
 import { encodeSession, SESSION_COOKIE, COOKIE_OPTS } from '@/lib/session'
 import { checkRateLimit } from '@/lib/rate-limit'
+import { logger } from '@/lib/logger'
 
 export async function POST(req: NextRequest) {
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown'
   const rl = checkRateLimit(`login:${ip}`, 5, 15 * 60 * 1000)
   if (!rl.allowed) {
+    logger.warn('login.rate_limited', { ip })
     return NextResponse.json({ error: 'Muitas tentativas. Tente novamente em 15 minutos.' }, { status: 429 })
   }
 
@@ -30,14 +32,17 @@ export async function POST(req: NextRequest) {
   const user = rows[0]
 
   if (!user || !user.is_active) {
+    logger.warn('login.failed', { ip, username })
     return NextResponse.json({ error: 'Usuário ou senha incorretos' }, { status: 401 })
   }
 
   const match = await bcrypt.compare(password, user.password_hash)
   if (!match) {
+    logger.warn('login.failed', { ip, username })
     return NextResponse.json({ error: 'Usuário ou senha incorretos' }, { status: 401 })
   }
 
+  logger.info('login.success', { ip, username: user.username, role: user.role })
   const secret = process.env.SESSION_SECRET!
   const token = encodeSession({ userId: user.id, username: user.username, role: user.role }, secret)
   const res = NextResponse.json({ ok: true, role: user.role })

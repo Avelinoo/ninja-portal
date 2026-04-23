@@ -48,6 +48,22 @@ export async function ensureSchema(): Promise<void> {
     )
   `)
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS portal.gestor_alerts (
+      id               SERIAL PRIMARY KEY,
+      user_id          INTEGER REFERENCES portal.users(id) ON DELETE CASCADE,
+      account_id       VARCHAR(50)  NOT NULL,
+      account_name     VARCHAR(255) DEFAULT '',
+      metric           VARCHAR(30)  NOT NULL,
+      condition        VARCHAR(10)  NOT NULL,
+      threshold        DECIMAL(12,4) NOT NULL,
+      telegram_chat_id VARCHAR(50)  DEFAULT '',
+      is_active        BOOLEAN      NOT NULL DEFAULT true,
+      last_triggered   TIMESTAMPTZ,
+      created_at       TIMESTAMPTZ DEFAULT NOW()
+    )
+  `)
+
   // Seed default admin — runs only if row doesn't exist yet
   const adminPass = process.env.ADMIN_PASSWORD ?? 'Avelino@123'
   const { rowCount } = await pool.query(

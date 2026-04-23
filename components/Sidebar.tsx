@@ -23,7 +23,14 @@ const modules = [
   },
   { href: '/dashboard/disparos', label: 'Disparos WhatsApp', icon: Send },
   { href: '/dashboard/relatorios', label: 'Relatórios', icon: BarChart2 },
-  { href: '/dashboard/gestor', label: 'Gestor Tráfego JR', icon: Bot },
+  {
+    label: 'Gestor Tráfego JR', icon: Bot, base: '/dashboard/gestor',
+    children: [
+      { href: '/dashboard/gestor', label: 'Visão Geral', exact: true },
+      { href: '/dashboard/gestor/campanhas', label: 'Campanhas' },
+      { href: '/dashboard/gestor/alertas', label: 'Alertas' },
+    ],
+  },
 ]
 
 function NavContent({ onClose, session, dark, toggleTheme }: {
@@ -34,7 +41,11 @@ function NavContent({ onClose, session, dark, toggleTheme }: {
 }) {
   const pathname = usePathname()
   const router = useRouter()
-  const [bdrOpen, setBdrOpen] = useState(pathname.startsWith('/dashboard/bdr'))
+  const [openMenus, setOpenMenus] = useState<Record<string, boolean>>({
+    '/dashboard/bdr': pathname.startsWith('/dashboard/bdr'),
+    '/dashboard/gestor': pathname.startsWith('/dashboard/gestor'),
+  })
+  const toggleMenu = (base: string) => setOpenMenus(o => ({ ...o, [base]: !o[base] }))
 
   async function logout() {
     await fetch('/api/auth/logout', { method: 'POST' })
@@ -65,7 +76,7 @@ function NavContent({ onClose, session, dark, toggleTheme }: {
             return (
               <div key={mod.label}>
                 <button
-                  onClick={() => setBdrOpen(v => !v)}
+                  onClick={() => toggleMenu(mod.base!)}
                   className="flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm font-medium transition-colors"
                   style={{
                     background: active ? 'var(--brand-light)' : 'transparent',
@@ -76,9 +87,9 @@ function NavContent({ onClose, session, dark, toggleTheme }: {
                     <mod.icon size={15} />
                     {mod.label}
                   </span>
-                  <ChevronRight size={13} style={{ transform: bdrOpen ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }} />
+                  <ChevronRight size={13} style={{ transform: openMenus[mod.base!] ? 'rotate(90deg)' : 'none', transition: 'transform .2s' }} />
                 </button>
-                {bdrOpen && (
+                {openMenus[mod.base!] && (
                   <div className="ml-4 mt-0.5 space-y-0.5 border-l pl-3" style={{ borderColor: 'var(--border)' }}>
                     {(mod.children ?? []).map(child => {
                       const isActive = child.exact ? pathname === child.href : pathname.startsWith(child.href)

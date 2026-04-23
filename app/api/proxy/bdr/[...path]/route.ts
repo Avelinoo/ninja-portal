@@ -3,8 +3,15 @@ import { NextRequest, NextResponse } from 'next/server'
 const BDR_BASE = process.env.BDR_API_URL ?? 'http://10.0.1.11:8001'
 const BDR_TOKEN = process.env.BDR_API_TOKEN ?? 'bdr2026avelon'
 
+// Allowlist de prefixos permitidos — evita SSRF para serviços internos arbitrários
+const ALLOWED_PREFIXES = ['leads', 'export', 'import', 'health', 'ready']
+
 async function proxy(req: NextRequest, params: { path: string[] }) {
   const path = params.path.join('/')
+  // Rejeita path traversal e prefixos não permitidos
+  if (path.includes('..') || !ALLOWED_PREFIXES.some(p => path.startsWith(p))) {
+    return new NextResponse('Not found', { status: 404 })
+  }
   const search = req.nextUrl.search
   const url = `${BDR_BASE}/${path}${search}`
 

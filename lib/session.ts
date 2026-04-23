@@ -4,14 +4,18 @@ export interface SessionPayload {
   userId: number
   username: string
   role: string
+  exp: number  // unix timestamp
 }
 
 function sign(data: string, secret: string): string {
   return createHmac('sha256', secret).update(data).digest('hex')
 }
 
-export function encodeSession(payload: SessionPayload, secret: string): string {
-  const data = Buffer.from(JSON.stringify(payload)).toString('base64url')
+const SESSION_TTL_S = 60 * 60 * 24 * 30  // 30 dias
+
+export function encodeSession(payload: Omit<SessionPayload, 'exp'>, secret: string): string {
+  const full: SessionPayload = { ...payload, exp: Math.floor(Date.now() / 1000) + SESSION_TTL_S }
+  const data = Buffer.from(JSON.stringify(full)).toString('base64url')
   const sig = sign(data, secret)
   return `${data}.${sig}`
 }
@@ -23,7 +27,9 @@ export function decodeSession(token: string, secret: string): SessionPayload | n
     const data = token.slice(0, dot)
     const sig = token.slice(dot + 1)
     if (sign(data, secret) !== sig) return null
-    return JSON.parse(Buffer.from(data, 'base64url').toString()) as SessionPayload
+    const payload = JSON.parse(Buffer.from(data, 'base64url').toString()) as SessionPayload
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null  // expirado
+    return payload
   } catch {
     return null
   }

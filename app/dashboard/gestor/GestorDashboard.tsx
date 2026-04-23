@@ -63,20 +63,19 @@ export default function GestorDashboard({ contas }: Props) {
     }).finally(() => setLoading(false))
   }, [contaSel, period, activeRange.from, activeRange.to]) // eslint-disable-line
 
-  // Aggregations
+  // Aggregations — spend/impressions/clicks/reach vêm de daily_account_metrics (mais preciso a nível de conta)
   const totalSpend       = metrics.reduce((s, m) => s + m.spend, 0)
   const totalImpressions = metrics.reduce((s, m) => s + m.impressions, 0)
   const totalClicks      = metrics.reduce((s, m) => s + m.clicks, 0)
   const totalReach       = metrics.reduce((s, m) => s + m.reach, 0)
-  const totalResults     = metrics.reduce((s, m) => s + m.result_count, 0)
   const avgCtr           = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0
   const avgCpc           = totalClicks > 0 ? totalSpend / totalClicks : 0
   const avgCpm           = totalImpressions > 0 ? (totalSpend / totalImpressions) * 1000 : 0
-  const avgCpr           = totalResults > 0 ? totalSpend / totalResults : 0
   const lastMetric       = metrics[metrics.length - 1]
   const activeCampaigns  = lastMetric?.active_campaigns || 0
-  const resultLabel      = lastMetric?.result_label || 'Resultados'
 
+  // Resultados e CPR calculados a partir dos campaign_snapshots (igual ao que o Meta exibe)
+  // Agrupa por result_label para lidar com múltiplos objetivos por conta
   const latestCampaigns = Object.values(
     campaigns.reduce((acc, c) => {
       if (!c.campaign_id) return acc
@@ -85,6 +84,24 @@ export default function GestorDashboard({ contas }: Props) {
       return acc
     }, {} as Record<string, CampaignSnapshot>)
   ).sort((a, b) => b.spend - a.spend)
+
+  // Soma de resultados por tipo (da lista de campanhas deduplicated)
+  const resultsByType = latestCampaigns.reduce((acc, c) => {
+    if (!c.result_label || c.result_count === 0) return acc
+    const key = c.result_label
+    acc[key] = (acc[key] || 0) + c.result_count
+    return acc
+  }, {} as Record<string, number>)
+
+  const resultTypes = Object.entries(resultsByType).sort((a, b) => b[1] - a[1])
+  const multipleTypes = resultTypes.length > 1
+  const totalResults = resultTypes.reduce((s, [, v]) => s + v, 0)
+  // Label: tipo dominante ou "Múltiplas conversões" quando há mais de um objetivo
+  const resultLabel = multipleTypes
+    ? 'Múltiplas conversões'
+    : (resultTypes[0]?.[0] || lastMetric?.result_label || 'Resultados')
+  // CPR correto: gasto total / total de resultados das campanhas (mesmo cálculo do Meta)
+  const avgCpr = totalResults > 0 ? totalSpend / totalResults : 0
 
   const contaAtual = contas.find(c => c.account_id === contaSel)
 
@@ -156,11 +173,42 @@ export default function GestorDashboard({ contas }: Props) {
             <KpiCard
               label={resultLabel}
               value={formatNumber(totalResults)}
-              sub={totalResults > 0 ? `${formatCurrency(avgCpr)}/resultado` : undefined}
+              sub={
+                totalResults > 0
+                  ? multipleTypes
+                    ? `${formatCurrency(avgCpr)}/resultado · ${resultTypes.length} tipos`
+                    : `${formatCurrency(avgCpr)}/resultado`
+                  : undefined
+              }
               icon={Target}
               highlight
             />
           </div>
+
+          {/* Breakdown de resultados quando há múltiplos objetivos */}
+          {multipleTypes && (
+            <div className="mb-6 bg-white rounded-xl border p-4" style={{ borderColor: 'var(--border)' }}>
+              <p className="text-xs font-semibold mb-3" style={{ color: 'var(--text-muted)' }}>
+                Resultados por tipo de objetivo
+              </p>
+              <div className="flex flex-wrap gap-3">
+                {resultTypes.map(([label, count]) => {
+                  const campSpend = latestCampaigns
+                    .filter(c => c.result_label === label)
+                    .reduce((s, c) => s + c.spend, 0)
+                  const cpr = count > 0 ? campSpend / count : 0
+                  return (
+                    <div key={label} className="flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-50">
+                      <span className="w-2 h-2 rounded-full" style={{ backgroundColor: 'var(--brand)' }} />
+                      <span className="text-xs font-medium" style={{ color: 'var(--foreground)' }}>{label}</span>
+                      <span className="text-xs font-bold" style={{ color: 'var(--foreground)' }}>{formatNumber(count)}</span>
+                      <span className="text-xs" style={{ color: 'var(--text-muted)' }}>· {formatCurrency(cpr)}/result.</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Status badges */}
           <div className="flex items-center gap-3 mb-6">

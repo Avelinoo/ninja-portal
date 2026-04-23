@@ -12,6 +12,7 @@ RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
+RUN mkdir -p .next/cache && chown -R appuser:appgroup .next /app
 USER appuser
 EXPOSE 3000
 ENV PORT=3000

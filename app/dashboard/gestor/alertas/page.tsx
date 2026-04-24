@@ -19,6 +19,22 @@ const METRICS = [
   { value: 'result_count',    label: 'Resultados (qtd)',     hint: 'Ex: 10' },
 ]
 const METRIC_LABEL: Record<string, string> = Object.fromEntries(METRICS.map(m => [m.value, m.label]))
+
+function fmtThreshold(metric: string, value: number): string {
+  switch (metric) {
+    case 'ctr':
+      return `${value.toFixed(2)}%`
+    case 'cpm':
+    case 'cpc':
+    case 'cost_per_result':
+    case 'spend':
+      return `R$ ${value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    case 'result_count':
+      return Math.round(value).toLocaleString('pt-BR')
+    default:
+      return String(value)
+  }
+}
 const CONDITIONS = [
   { value: 'above', label: 'Acima de' },
   { value: 'below', label: 'Abaixo de' },
@@ -244,7 +260,7 @@ export default function AlertasPage() {
                       {a.account_name || a.account_id} —{' '}
                       <span style={{ color: 'var(--brand)' }}>{METRIC_LABEL[a.metric] ?? a.metric}</span>
                       {' '}{a.condition === 'above' ? 'acima de' : 'abaixo de'}{' '}
-                      <strong>{a.threshold}</strong>
+                      <strong>{fmtThreshold(a.metric, a.threshold)}</strong>
                     </p>
                     <p className="text-xs mt-0.5" style={{ color: 'var(--text-subtle)' }}>
                       {a.last_triggered

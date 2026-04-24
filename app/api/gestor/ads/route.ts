@@ -27,17 +27,28 @@ export async function GET(req: NextRequest) {
   try {
     const { rows } = await pool.query(
       `SELECT
-         account_id, campaign_id, adset_id, ad_id, ad_name, status,
-         COALESCE(spend::float, 0)           AS spend,
-         COALESCE(impressions::int, 0)       AS impressions,
-         COALESCE(clicks::int, 0)            AS clicks,
-         COALESCE(ctr::float, 0)             AS ctr,
-         COALESCE(cpc::float, 0)             AS cpc,
-         COALESCE(result_count::int, 0)      AS result_count,
-         COALESCE(cost_per_result::float, 0) AS cost_per_result,
-         snapshot_date
-       FROM ad_snapshots ${where}
-       ORDER BY snapshot_date DESC, spend DESC`,
+         account_id, campaign_id, adset_id, ad_id,
+         MAX(ad_name) AS ad_name,
+         (SELECT status FROM ad_snapshots s2
+          WHERE s2.ad_id = s.ad_id
+          ORDER BY s2.snapshot_date DESC LIMIT 1) AS status,
+         SUM(COALESCE(spend::float, 0))     AS spend,
+         SUM(COALESCE(impressions::int, 0)) AS impressions,
+         SUM(COALESCE(clicks::int, 0))      AS clicks,
+         SUM(COALESCE(result_count::int, 0)) AS result_count,
+         CASE WHEN SUM(impressions::int) > 0
+              THEN SUM(clicks::int)::float / SUM(impressions::int) * 100
+              ELSE 0 END AS ctr,
+         CASE WHEN SUM(clicks::int) > 0
+              THEN SUM(spend::float) / SUM(clicks::int)
+              ELSE 0 END AS cpc,
+         CASE WHEN SUM(result_count::int) > 0
+              THEN SUM(spend::float) / SUM(result_count::int)
+              ELSE 0 END AS cost_per_result,
+         MAX(snapshot_date) AS snapshot_date
+       FROM ad_snapshots s ${where}
+       GROUP BY account_id, campaign_id, adset_id, ad_id
+       ORDER BY spend DESC`,
       vals
     )
     return NextResponse.json(rows)

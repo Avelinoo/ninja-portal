@@ -35,18 +35,10 @@ export default function CampanhasPage() {
     else p.set('from', activeRange.from)
 
     type CampRow = Record<string, unknown>
+    // Data já vem agregada (SUM por campaign_id) — sem deduplication necessária
     const data: CampRow[] = await fetch(`/api/gestor/campanhas?${p}`).then(r => r.json()).catch(() => [])
 
-    // Deduplicate: latest snapshot per campaign
-    const dedupMap: Record<string, CampRow> = {}
-    for (const r of data) {
-      const cid = String(r.campaign_id)
-      const ex = dedupMap[cid]
-      if (!ex || String(r.snapshot_date) > String(ex.snapshot_date)) dedupMap[cid] = r
-    }
-    const deduped = Object.values(dedupMap)
-
-    const mapped: Row[] = deduped.map(r => ({
+    const mapped: Row[] = data.map(r => ({
       id:              String(r.campaign_id),
       name:            String(r.campaign_name || r.campaign_id),
       status:          String(r.status ?? ''),

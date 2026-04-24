@@ -96,18 +96,10 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
       }
       if (!url) return
 
+      // Data already aggregated (SUM per id) — no deduplication needed
       const data: Record<string, unknown>[] = await fetch(url).then(r => r.json())
 
-      // Deduplicate: keep latest snapshot per id
-      const dedupMap: Record<string, Record<string, unknown>> = {}
-      for (const r of data) {
-        const id = String(row.level === 'campaign' ? r['adset_id'] : r['ad_id'])
-        const ex = dedupMap[id]
-        if (!ex || String(r['snapshot_date']) > String(ex['snapshot_date'])) dedupMap[id] = r
-      }
-      const deduped = Object.values(dedupMap)
-
-      const mapped: Row[] = deduped.map(r => ({
+      const mapped: Row[] = data.map(r => ({
         id:              String(row.level === 'campaign' ? r.adset_id : r.ad_id),
         name:            String(row.level === 'campaign' ? r.adset_name : r.ad_name),
         status:          String(r.status ?? ''),
@@ -155,19 +147,23 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
     })
   }
 
-  function renderRow(row: Row, depth: number): React.ReactElement[] {
+  function renderRow(row: Row, depth: number, maxSpend = 0, rank = 0): React.ReactElement[] {
     const canExpand = row.level !== 'ad'
     const isExpanded = expanded.has(row.id)
     const isLoading = loading.has(row.id)
     const s = STATUS_STYLE[row.status] ?? { label: row.status, color: '#6b7280', bg: '#f3f4f6' }
     const indent = INDENT[row.level]
     const bgRow = depth === 0 ? 'bg-white' : depth === 1 ? 'bg-gray-50/60' : 'bg-blue-50/30'
+    const spendPct = maxSpend > 0 && row.spend > 0 ? Math.max(4, (row.spend / maxSpend) * 100) : 0
+    const isTop = depth === 0 && rank === 0 && row.spend > 0
+    const RANK_COLORS = ['#f59e0b', '#9ca3af', '#b45309']
+    const rankColor = depth === 0 && rank < 3 && row.spend > 0 ? RANK_COLORS[rank] : null
 
     return [
       <tr
         key={row.id}
         onClick={() => canExpand && fetchChildren(row)}
-        className={`border-b transition-colors ${bgRow} ${canExpand ? 'cursor-pointer hover:bg-green-50/40' : ''}`}
+        className={`border-b transition-colors ${bgRow} ${canExpand ? 'cursor-pointer hover:bg-green-50/40' : ''} ${isTop ? 'ring-1 ring-inset ring-amber-200' : ''}`}
         style={{ borderColor: 'var(--border)' }}
       >
         {/* Nome */}
@@ -181,13 +177,21 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
                   : <ChevronRight size={13} className="shrink-0 text-gray-400" />
             )}
             {!canExpand && <span className="w-3 shrink-0" />}
-            <span
-              className="text-sm font-medium truncate max-w-[220px]"
-              style={{ color: depth === 0 ? 'var(--foreground)' : 'var(--text-muted)' }}
-              title={row.name}
-            >
-              {row.name || `(sem nome)`}
-            </span>
+            <div className="flex items-center gap-1.5 min-w-0">
+              {rankColor && (
+                <span className="shrink-0 text-[10px] font-bold w-4 h-4 rounded-full flex items-center justify-center text-white"
+                      style={{ backgroundColor: rankColor }}>
+                  {rank + 1}
+                </span>
+              )}
+              <span
+                className="text-sm font-medium truncate max-w-[200px]"
+                style={{ color: depth === 0 ? 'var(--foreground)' : 'var(--text-muted)' }}
+                title={row.name}
+              >
+                {row.name || `(sem nome)`}
+              </span>
+            </div>
           </div>
         </td>
         {/* Status */}
@@ -197,8 +201,17 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
             {s.label}
           </span>
         </td>
-        {/* Métricas */}
-        <td className="px-3 py-3 text-right text-sm font-medium" style={{ color: '#19a66a' }}>{brl(row.spend)}</td>
+        {/* Gasto com barra de performance relativa */}
+        <td className="px-3 py-3 text-right text-sm font-medium" style={{ color: '#19a66a' }}>
+          <div className="flex flex-col items-end gap-1">
+            <span>{brl(row.spend)}</span>
+            {spendPct > 0 && (
+              <div className="w-16 h-1 bg-gray-100 rounded-full overflow-hidden">
+                <div className="h-full rounded-full" style={{ width: `${spendPct}%`, backgroundColor: '#19a66a' }} />
+              </div>
+            )}
+          </div>
+        </td>
         <td className="px-3 py-3 text-right text-sm" style={{ color: 'var(--text-muted)' }}>{num(row.impressions)}</td>
         <td className="px-3 py-3 text-right text-sm" style={{ color: 'var(--text-muted)' }}>{num(row.clicks)}</td>
         <td className="px-3 py-3 text-right text-sm">
@@ -219,13 +232,18 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
       </tr>,
       // Filhos
       ...(isExpanded && children[row.id]
-        ? sortRows(children[row.id]).flatMap((child): React.ReactElement[] => renderRow(child, depth + 1))
+        ? (() => {
+            const ch = sortRows(children[row.id])
+            const childMax = ch.length > 0 ? Math.max(...ch.map(c => c.spend)) : 0
+            return ch.flatMap((child, ci): React.ReactElement[] => renderRow(child, depth + 1, childMax, ci))
+          })()
         : [] as React.ReactElement[]
       ),
     ]
   }
 
   const sorted = sortRows(campaigns)
+  const maxSpend = sorted.length > 0 ? Math.max(...sorted.map(r => r.spend)) : 0
 
   return (
     <div className="bg-white rounded-2xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>
@@ -253,7 +271,7 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
               ? <tr><td colSpan={10} className="py-12 text-center text-sm" style={{ color: 'var(--text-muted)' }}>
                   Nenhuma campanha encontrada.
                 </td></tr>
-              : sorted.flatMap(row => renderRow(row, 0))
+              : sorted.flatMap((row, idx) => renderRow(row, 0, maxSpend, idx))
             }
           </tbody>
         </table>

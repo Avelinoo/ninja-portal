@@ -8,27 +8,30 @@ export interface Row {
   id: string
   name: string
   status: string
-  spend: number
-  impressions: number
-  clicks: number
-  ctr: number
-  cpc: number
-  cpm?: number
-  result_count: number
-  cost_per_result: number
+  spend: number | null
+  impressions: number | null
+  clicks: number | null
+  ctr: number | null
+  cpc: number | null
+  cpm?: number | null
+  result_count: number | null
+  cost_per_result: number | null
   level: 'campaign' | 'adset' | 'ad'
   campaign_id?: string
   adset_id?: string
+  hasData?: boolean  // flag: false = row existe na DB mas sem métricas no período
 }
 
 type SortKey = keyof Omit<Row, 'id' | 'name' | 'status' | 'level' | 'campaign_id' | 'adset_id'>
 
 /* ─────────────────── helpers ─────────────────── */
-const brl = (v: number) => v > 0
-  ? `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-  : '—'
-const num = (v: number) => v > 0 ? v.toLocaleString('pt-BR') : '—'
-const pct = (v: number) => v > 0 ? `${v.toFixed(2)}%` : '—'
+// Mostra valor formatado; null/undefined → "—"; 0 → "R$ 0,00" / "0" / "0,00%"
+const brl = (v: number | null | undefined) => {
+  if (v == null) return '—'
+  return `R$ ${v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+const num = (v: number | null | undefined) => v == null ? '—' : v.toLocaleString('pt-BR')
+const pct = (v: number | null | undefined) => v == null ? '—' : `${v.toFixed(2)}%`
 
 const STATUS_STYLE: Record<string, { label: string; color: string; bg: string }> = {
   ACTIVE:   { label: 'Ativa',     color: '#19a66a', bg: '#e8f8f1' },
@@ -99,24 +102,31 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
       // Data already aggregated (SUM per id) — no deduplication needed
       const data: Record<string, unknown>[] = await fetch(url).then(r => r.json())
 
-      const mapped: Row[] = data.map(r => ({
-        id:              String(row.level === 'campaign' ? r.adset_id : r.ad_id),
-        name:            String(row.level === 'campaign' ? r.adset_name : r.ad_name),
-        status:          String(r.status ?? ''),
-        spend:           Number(r.spend) || 0,
-        impressions:     Number(r.impressions) || 0,
-        clicks:          Number(r.clicks) || 0,
-        ctr:             Number(r.ctr) || 0,
-        cpc:             Number(r.cpc) || 0,
-        cpm:             row.level === 'campaign'
-                           ? (Number(r.impressions) > 0 ? (Number(r.spend) / Number(r.impressions)) * 1000 : 0)
-                           : undefined,
-        result_count:    Number(r.result_count) || 0,
-        cost_per_result: Number(r.cost_per_result) || 0,
-        level:           row.level === 'campaign' ? 'adset' : 'ad',
-        campaign_id:     String(r.campaign_id ?? row.campaign_id ?? row.id),
-        adset_id:        row.level === 'adset' ? row.id : String(r.adset_id ?? ''),
-      }))
+      const mapped: Row[] = data.map(r => {
+        const sp  = r.spend     != null ? Number(r.spend)           : null
+        const imp = r.impressions != null ? Number(r.impressions)   : null
+        const cl  = r.clicks    != null ? Number(r.clicks)          : null
+        const res = r.result_count != null ? Number(r.result_count) : null
+        return {
+          id:              String(row.level === 'campaign' ? r.adset_id : r.ad_id),
+          name:            String(row.level === 'campaign' ? r.adset_name : r.ad_name),
+          status:          String(r.status ?? ''),
+          spend:           sp,
+          impressions:     imp,
+          clicks:          cl,
+          ctr:             r.ctr != null ? Number(r.ctr) : null,
+          cpc:             r.cpc != null ? Number(r.cpc) : null,
+          cpm:             row.level === 'campaign'
+                             ? ((imp != null && imp > 0 && sp != null) ? (sp / imp) * 1000 : null)
+                             : undefined,
+          result_count:    res,
+          cost_per_result: r.cost_per_result != null ? Number(r.cost_per_result) : null,
+          level:           row.level === 'campaign' ? 'adset' : 'ad',
+          campaign_id:     String(r.campaign_id ?? row.campaign_id ?? row.id),
+          adset_id:        row.level === 'adset' ? row.id : String(r.adset_id ?? ''),
+          hasData:         (sp != null && sp > 0) || (imp != null && imp > 0),
+        }
+      })
 
       setChildren(prev => ({ ...prev, [key]: mapped }))
       setExpanded(prev => new Set(prev).add(key))
@@ -136,8 +146,8 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
 
   function sortRows(rows: Row[]): Row[] {
     return [...rows].sort((a, b) => {
-      const av = (a as unknown as Record<string, unknown>)[sortKey]
-      const bv = (b as unknown as Record<string, unknown>)[sortKey]
+      const av = (a as unknown as Record<string, unknown>)[sortKey] ?? 0
+      const bv = (b as unknown as Record<string, unknown>)[sortKey] ?? 0
       if (typeof av === 'number' && typeof bv === 'number') {
         return sortDir === 'desc' ? bv - av : av - bv
       }
@@ -154,10 +164,12 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
     const s = STATUS_STYLE[row.status] ?? { label: row.status, color: '#6b7280', bg: '#f3f4f6' }
     const indent = INDENT[row.level]
     const bgRow = depth === 0 ? 'bg-white' : depth === 1 ? 'bg-gray-50/60' : 'bg-blue-50/30'
-    const spendPct = maxSpend > 0 && row.spend > 0 ? Math.max(4, (row.spend / maxSpend) * 100) : 0
-    const isTop = depth === 0 && rank === 0 && row.spend > 0
+    const spend = row.spend ?? 0
+    const spendPct = maxSpend > 0 && spend > 0 ? Math.max(4, (spend / maxSpend) * 100) : 0
+    const isTop = depth === 0 && rank === 0 && spend > 0
     const RANK_COLORS = ['#f59e0b', '#9ca3af', '#b45309']
-    const rankColor = depth === 0 && rank < 3 && row.spend > 0 ? RANK_COLORS[rank] : null
+    const rankColor = depth === 0 && rank < 3 && spend > 0 ? RANK_COLORS[rank] : null
+    const ctr = row.ctr ?? 0
 
     return [
       <tr
@@ -215,7 +227,7 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
         <td className="px-3 py-3 text-right text-sm" style={{ color: 'var(--text-muted)' }}>{num(row.impressions)}</td>
         <td className="px-3 py-3 text-right text-sm" style={{ color: 'var(--text-muted)' }}>{num(row.clicks)}</td>
         <td className="px-3 py-3 text-right text-sm">
-          <span className={row.ctr >= 1 ? 'text-green-600' : row.ctr >= 0.5 ? 'text-yellow-600' : 'text-red-500'}>
+          <span className={ctr >= 1 ? 'text-green-600' : ctr >= 0.5 ? 'text-yellow-600' : 'text-red-500'}>
             {pct(row.ctr)}
           </span>
         </td>
@@ -234,7 +246,7 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
       ...(isExpanded && children[row.id]
         ? (() => {
             const ch = sortRows(children[row.id])
-            const childMax = ch.length > 0 ? Math.max(...ch.map(c => c.spend)) : 0
+            const childMax = ch.length > 0 ? Math.max(...ch.map(c => c.spend ?? 0)) : 0
             return ch.flatMap((child, ci): React.ReactElement[] => renderRow(child, depth + 1, childMax, ci))
           })()
         : [] as React.ReactElement[]
@@ -243,7 +255,7 @@ export default function DrilldownTable({ campaigns, accountId, from, to, maximum
   }
 
   const sorted = sortRows(campaigns)
-  const maxSpend = sorted.length > 0 ? Math.max(...sorted.map(r => r.spend)) : 0
+  const maxSpend = sorted.length > 0 ? Math.max(...sorted.map(r => r.spend ?? 0)) : 0
 
   return (
     <div className="bg-white rounded-2xl border overflow-hidden" style={{ borderColor: 'var(--border)' }}>

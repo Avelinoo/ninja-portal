@@ -38,20 +38,27 @@ export default function CampanhasPage() {
     // Data já vem agregada (SUM por campaign_id) — sem deduplication necessária
     const data: CampRow[] = await fetch(`/api/gestor/campanhas?${p}`).then(r => r.json()).catch(() => [])
 
-    const mapped: Row[] = data.map(r => ({
-      id:              String(r.campaign_id),
-      name:            String(r.campaign_name || r.campaign_id),
-      status:          String(r.status ?? ''),
-      spend:           Number(r.spend) || 0,
-      impressions:     Number(r.impressions) || 0,
-      clicks:          Number(r.clicks) || 0,
-      ctr:             Number(r.ctr) || 0,
-      cpc:             Number(r.cpc) || 0,
-      cpm:             Number(r.impressions) > 0 ? (Number(r.spend) / Number(r.impressions)) * 1000 : 0,
-      result_count:    Number(r.result_count) || 0,
-      cost_per_result: Number(r.cost_per_result) || 0,
-      level:           'campaign' as const,
-    }))
+    const mapped: Row[] = data.map(r => {
+      const sp  = r.spend      != null ? Number(r.spend)           : null
+      const imp = r.impressions != null ? Number(r.impressions)    : null
+      const cl  = r.clicks     != null ? Number(r.clicks)          : null
+      const res = r.result_count != null ? Number(r.result_count)  : null
+      return {
+        id:              String(r.campaign_id),
+        name:            String(r.campaign_name || r.campaign_id),
+        status:          String(r.status ?? ''),
+        spend:           sp,
+        impressions:     imp,
+        clicks:          cl,
+        ctr:             r.ctr != null ? Number(r.ctr) : null,
+        cpc:             r.cpc != null ? Number(r.cpc) : null,
+        cpm:             (imp != null && imp > 0 && sp != null) ? (sp / imp) * 1000 : null,
+        result_count:    res,
+        cost_per_result: r.cost_per_result != null ? Number(r.cost_per_result) : null,
+        level:           'campaign' as const,
+        hasData:         (sp != null && sp > 0) || (imp != null && imp > 0),
+      }
+    })
 
     setRows(mapped)
     setLoading(false)

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Trash2, Bell, BellOff, Loader2, SendHorizonal, CheckCircle } from 'lucide-react'
+import { Plus, Trash2, Bell, BellOff, Loader2, SendHorizonal, CheckCircle, Pencil, X } from 'lucide-react'
 
 interface Conta { account_id: string; account_name: string }
 interface Alerta {
@@ -19,27 +19,25 @@ const METRICS = [
   { value: 'result_count',    label: 'Resultados (qtd)',     hint: 'Ex: 10' },
 ]
 const METRIC_LABEL: Record<string, string> = Object.fromEntries(METRICS.map(m => [m.value, m.label]))
-
 const CONDITIONS = [
   { value: 'above', label: 'Acima de' },
   { value: 'below', label: 'Abaixo de' },
 ]
+
+type FormState = { account_id: string; account_name: string; metric: string; condition: string; threshold: string; telegram_chat_id: string }
+const EMPTY_FORM: FormState = { account_id: '', account_name: '', metric: 'ctr', condition: 'below', threshold: '', telegram_chat_id: '' }
 
 export default function AlertasPage() {
   const [contas, setContas]     = useState<Conta[]>([])
   const [alertas, setAlertas]   = useState<Alerta[]>([])
   const [loading, setLoading]   = useState(true)
   const [showForm, setShowForm] = useState(false)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const [saving, setSaving]     = useState(false)
   const [checking, setChecking] = useState(false)
-  const [result, setResult]     = useState<{ triggered: number; alerts: Alerta[] } | null>(null)
+  const [result, setResult]     = useState<{ triggered: number } | null>(null)
   const [error, setError]       = useState('')
-
-  const [form, setForm] = useState({
-    account_id: '', account_name: '',
-    metric: 'ctr', condition: 'below', threshold: '',
-    telegram_chat_id: '',
-  })
+  const [form, setForm]         = useState<FormState>(EMPTY_FORM)
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -47,28 +45,47 @@ export default function AlertasPage() {
       fetch('/api/gestor/contas').then(r => r.json()),
       fetch('/api/gestor/alertas').then(r => r.json()),
     ])
-    setContas(c)
+    setContas(Array.isArray(c) ? c : [])
     setAlertas(Array.isArray(a) ? a : [])
-    if (c.length && !form.account_id) {
-      setForm(f => ({ ...f, account_id: c[0].account_id, account_name: c[0].account_name }))
-    }
     setLoading(false)
-  }, [])// eslint-disable-line
+  }, [])
 
   useEffect(() => { loadData() }, [loadData])
 
-  async function save(e: React.FormEvent) {
+  function openNew() {
+    const firstConta = contas[0]
+    setForm({ ...EMPTY_FORM, account_id: firstConta?.account_id ?? '', account_name: firstConta?.account_name ?? '' })
+    setEditingId(null)
+    setShowForm(true)
+    setError('')
+    setResult(null)
+  }
+
+  function openEdit(a: Alerta) {
+    setForm({ account_id: a.account_id, account_name: a.account_name, metric: a.metric, condition: a.condition, threshold: String(a.threshold), telegram_chat_id: a.telegram_chat_id ?? '' })
+    setEditingId(a.id)
+    setShowForm(true)
+    setError('')
+    setResult(null)
+    window.scrollTo({ top: 0, behavior: 'smooth' })
+  }
+
+  function closeForm() { setShowForm(false); setEditingId(null); setForm(EMPTY_FORM); setError('') }
+
+  async function save(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     setSaving(true); setError('')
-    const res = await fetch('/api/gestor/alertas', {
-      method: 'POST',
+    const payload = { ...form, threshold: parseFloat(form.threshold) }
+    const isEdit = editingId !== null
+
+    const res = await fetch(isEdit ? `/api/gestor/alertas?id=${editingId}` : '/api/gestor/alertas', {
+      method: isEdit ? 'PATCH' : 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...form, threshold: parseFloat(form.threshold) }),
+      body: JSON.stringify(payload),
     })
     const data = await res.json()
-    if (!res.ok) { setError(data.error || 'Erro ao criar alerta'); setSaving(false); return }
-    setShowForm(false)
-    setForm(f => ({ ...f, metric: 'ctr', condition: 'below', threshold: '', telegram_chat_id: '' }))
+    if (!res.ok) { setError(data.error || 'Erro ao salvar alerta'); setSaving(false); return }
+    closeForm()
     loadData()
     setSaving(false)
   }
@@ -114,7 +131,7 @@ export default function AlertasPage() {
             Verificar agora
           </button>
           <button
-            onClick={() => { setShowForm(v => !v); setError('') }}
+            onClick={openNew}
             className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium text-white"
             style={{ backgroundColor: 'var(--brand)' }}
           >
@@ -125,22 +142,25 @@ export default function AlertasPage() {
 
       {/* Resultado da verificação */}
       {result && (
-        <div className={`mb-4 px-4 py-3 rounded-xl flex items-start gap-3 text-sm ${result.triggered > 0 ? 'bg-orange-50 text-orange-700' : 'bg-green-50 text-green-700'}`}>
+        <div className={`mb-4 px-4 py-3 rounded-xl flex items-start gap-3 text-sm ${(result.triggered) > 0 ? 'bg-orange-50 text-orange-700' : 'bg-green-50 text-green-700'}`}>
           <CheckCircle size={16} className="mt-0.5 shrink-0" />
-          <span>
-            {result.triggered > 0
-              ? `${result.triggered} alerta(s) disparado(s) via Telegram.`
-              : 'Todas as métricas dentro dos limites configurados.'}
-          </span>
+          <span>{(result.triggered) > 0 ? `${result.triggered} alerta(s) disparado(s) via Telegram.` : 'Todas as métricas dentro dos limites.'}</span>
         </div>
       )}
 
       {error && <p className="mb-4 text-xs text-red-500 bg-red-50 px-3 py-2 rounded-lg">{error}</p>}
 
-      {/* Formulário */}
+      {/* Formulário (criar ou editar) */}
       {showForm && (
-        <form onSubmit={save} className="bg-white rounded-2xl border p-5 mb-6 space-y-4" style={{ borderColor: 'var(--border)' }}>
-          <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>Novo alerta</h2>
+        <form onSubmit={save} className="bg-white rounded-2xl border p-5 mb-6 space-y-4" style={{ borderColor: editingId ? '#19a66a' : 'var(--border)', boxShadow: editingId ? '0 0 0 2px #19a66a22' : undefined }}>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold" style={{ color: 'var(--foreground)' }}>
+              {editingId ? 'Editar alerta' : 'Novo alerta'}
+            </h2>
+            <button type="button" onClick={closeForm} className="p-1 rounded-lg hover:bg-gray-100" style={{ color: 'var(--text-muted)' }}>
+              <X size={15} />
+            </button>
+          </div>
 
           <div>
             <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>Conta</label>
@@ -176,11 +196,11 @@ export default function AlertasPage() {
 
           <div>
             <label className="block text-xs font-medium mb-1.5" style={{ color: 'var(--text-muted)' }}>
-              Telegram Chat ID <span className="font-normal">(opcional — usa o padrão se vazio)</span>
+              Telegram Chat ID <span className="font-normal">(opcional)</span>
             </label>
             <input type="text" value={form.telegram_chat_id}
               onChange={e => setForm(f => ({ ...f, telegram_chat_id: e.target.value }))}
-              placeholder="-100xxxxxxxxx ou seu chat_id"
+              placeholder="-100xxxxxxxxx"
               className="w-full px-3 py-2.5 rounded-lg border text-sm outline-none" style={{ borderColor: 'var(--border)', color: 'var(--foreground)' }} />
           </div>
 
@@ -188,10 +208,10 @@ export default function AlertasPage() {
             <button type="submit" disabled={saving}
               className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white disabled:opacity-60"
               style={{ backgroundColor: 'var(--brand)' }}>
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-              Criar alerta
+              {saving ? <Loader2 size={14} className="animate-spin" /> : editingId ? <Pencil size={14} /> : <Plus size={14} />}
+              {editingId ? 'Salvar alterações' : 'Criar alerta'}
             </button>
-            <button type="button" onClick={() => setShowForm(false)}
+            <button type="button" onClick={closeForm}
               className="px-4 py-2 rounded-lg text-sm" style={{ color: 'var(--text-muted)' }}>
               Cancelar
             </button>
@@ -213,9 +233,10 @@ export default function AlertasPage() {
         ) : (
           <ul className="divide-y" style={{ borderColor: 'var(--border)' }}>
             {alertas.map(a => (
-              <li key={a.id} className="flex items-center justify-between px-5 py-4">
+              <li key={a.id} className={`flex items-center justify-between px-5 py-4 transition-colors ${editingId === a.id ? 'bg-green-50/40' : ''}`}>
                 <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: a.is_active ? '#d1fae5' : '#f3f4f6' }}>
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0"
+                       style={{ background: a.is_active ? '#d1fae5' : '#f3f4f6' }}>
                     <Bell size={14} style={{ color: a.is_active ? '#19a66a' : '#9ca3af' }} />
                   </div>
                   <div>
@@ -233,11 +254,24 @@ export default function AlertasPage() {
                     </p>
                   </div>
                 </div>
-                <button onClick={() => remove(a.id)}
-                  className="p-1.5 rounded-lg transition-colors hover:bg-red-50 hover:text-red-500"
-                  style={{ color: 'var(--text-muted)' }}>
-                  <Trash2 size={14} />
-                </button>
+                <div className="flex items-center gap-1">
+                  <button
+                    onClick={() => openEdit(a)}
+                    title="Editar"
+                    className="p-1.5 rounded-lg transition-colors hover:bg-green-50 hover:text-green-600"
+                    style={{ color: editingId === a.id ? '#19a66a' : 'var(--text-muted)' }}
+                  >
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => remove(a.id)}
+                    title="Remover"
+                    className="p-1.5 rounded-lg transition-colors hover:bg-red-50 hover:text-red-500"
+                    style={{ color: 'var(--text-muted)' }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </div>
               </li>
             ))}
           </ul>

@@ -78,6 +78,58 @@ export async function POST(req: NextRequest) {
   }
 }
 
+export async function PATCH(req: NextRequest) {
+  const session = getSession(req)
+  if (!session) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
+
+  const id = parseInt(req.nextUrl.searchParams.get('id') ?? '', 10)
+  if (!Number.isInteger(id) || id <= 0) {
+    return NextResponse.json({ error: 'ID inválido' }, { status: 400 })
+  }
+
+  let body: Record<string, unknown>
+  try { body = await req.json() } catch {
+    return NextResponse.json({ error: 'JSON inválido' }, { status: 400 })
+  }
+
+  const { metric, condition, threshold, telegram_chat_id } = body
+
+  if (metric && !ALLOWED_METRICS.has(String(metric))) {
+    return NextResponse.json({ error: 'Métrica inválida' }, { status: 400 })
+  }
+  if (condition && !ALLOWED_CONDITIONS.has(String(condition))) {
+    return NextResponse.json({ error: 'Condição inválida' }, { status: 400 })
+  }
+  if (threshold !== undefined) {
+    const t = Number(threshold)
+    if (!isFinite(t) || t < 0) return NextResponse.json({ error: 'Threshold inválido' }, { status: 400 })
+  }
+
+  try {
+    await ensureSchema()
+    const fields: string[] = []
+    const vals: unknown[] = []
+    let i = 1
+    if (metric)           { fields.push(`metric = $${i++}`);           vals.push(metric) }
+    if (condition)        { fields.push(`condition = $${i++}`);        vals.push(condition) }
+    if (threshold !== undefined) { fields.push(`threshold = $${i++}`); vals.push(Number(threshold)) }
+    if (telegram_chat_id !== undefined) { fields.push(`telegram_chat_id = $${i++}`); vals.push(telegram_chat_id) }
+
+    if (!fields.length) return NextResponse.json({ error: 'Nenhum campo para atualizar' }, { status: 400 })
+
+    vals.push(id, session.userId)
+    const result = await pool.query(
+      `UPDATE portal.gestor_alerts SET ${fields.join(', ')} WHERE id = $${i++} AND user_id = $${i} RETURNING *`,
+      vals
+    )
+    if (result.rowCount === 0) return NextResponse.json({ error: 'Alerta não encontrado' }, { status: 404 })
+    return NextResponse.json(result.rows[0])
+  } catch (err) {
+    console.error('[gestor/alertas PATCH]', err)
+    return NextResponse.json({ error: 'Erro ao atualizar alerta' }, { status: 500 })
+  }
+}
+
 export async function DELETE(req: NextRequest) {
   const session = getSession(req)
   if (!session) return NextResponse.json({ error: 'Não autenticado' }, { status: 401 })
